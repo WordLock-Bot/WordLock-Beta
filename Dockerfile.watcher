@@ -1,0 +1,11 @@
+FROM python:3.12-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/tunnel-watcher.py /usr/local/bin/tunnel-watcher.py
+
+RUN pip install --no-cache-dir asyncpg httpx pywebpush
+
+ENTRYPOINT ["python", "/usr/local/bin/tunnel-watcher.py"]

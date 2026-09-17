@@ -1,0 +1,104 @@
+services:
+  db:
+    image: postgres:16-alpine
+    pull_policy: never
+    container_name: wordlock-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wordlock
+      POSTGRES_PASSWORD: wordlock
+      POSTGRES_DB: wordlock
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wordlock"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: wordlock-api:latest
+    pull_policy: never
+    container_name: wordlock-api
+    restart: unless-stopped
+    environment: &common
+      DATABASE_URL: postgresql://wordlock:wordlock@db:5432/wordlock
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      BOT_OWNER_IDS: ${BOT_OWNER_IDS}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI}
+      DASHBOARD_URL: ${DASHBOARD_URL}
+      DISCORD_INVITE_URL: ${DISCORD_INVITE_URL}
+      ADMIN_WHITELIST_IDS: ${ADMIN_WHITELIST_IDS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
+      COOKIE_SECURE: ${COOKIE_SECURE}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+      AVATAR_WEBHOOK_SECRET: ${AVATAR_WEBHOOK_SECRET}
+      BOT_ACTIVITY_URL: ${BOT_ACTIVITY_URL:-wordlockbot.vercel.app}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  bot:
+    image: wordlockbot:latest
+    pull_policy: never
+    container_name: wordlockbot
+    restart: unless-stopped
+    environment: *common
+    depends_on:
+      db:
+        condition: service_healthy
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    pull_policy: never
+    container_name: wordlock-tunnel
+    restart: unless-stopped
+    user: root
+    command: tunnel --url http://wordlock-api:8000 --no-autoupdate --logfile /tunnel-log/tunnel.log
+    volumes:
+      - tunnel-log:/tunnel-log
+    depends_on:
+      api:
+        condition: service_started
+
+  tunnel-watcher:
+    image: wordlock-tunnel-watcher:latest
+    pull_policy: never
+    container_name: wordlock-tunnel-watcher
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://wordlock:wordlock@db:5432/wordlock
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      REPO_URL: ${REPO_URL:-https://github.com/bot-coder0815/WordLock.git}
+      REPO_BRANCH: main
+      REPO_FILE: config/instance-url.json
+      API_HEALTH_URL: http://wordlock-api:8000/api/health
+      CHECK_INTERVAL: ${CHECK_INTERVAL:-30}
+      DOWN_THRESHOLD: ${DOWN_THRESHOLD:-300}
+      RESEND_INTERVAL: ${RESEND_INTERVAL:-1800}
+      HEARTBEAT_MAX_AGE: ${HEARTBEAT_MAX_AGE:-120}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+      VERCEL_TOKEN: ${VERCEL_TOKEN}
+      VERCEL_PROJECT_ID: ${VERCEL_PROJECT_ID}
+      VERCEL_DEPLOY_HOOK_URL: ${VERCEL_DEPLOY_HOOK_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+      tunnel:
+        condition: service_started
+    volumes:
+      - tunnel-log:/tunnel-log:ro
+      - watch-repo:/repo
+
+volumes:
+  pgdata:
+  tunnel-log:
+  watch-repo:
